@@ -2,6 +2,7 @@ const ClickHouse = require('@apla/clickhouse');
 const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
+const retry = require('retry');
 
 
 dotenv.config();
@@ -18,15 +19,29 @@ const clickhouse = new ClickHouse({
 
 function executeQuery(query) {
   return new Promise((resolve, reject) => {
-    const rows = [];
-    const stream = clickhouse.query(query);
-    
-    stream.on('data', (row) => rows.push(row));
-    stream.on('end', () => resolve(rows));
-    stream.on('error', (err) => reject(err));
+    const operation = retry.operation({
+      retries: 5, // Количество попыток
+      factor: 2, // Множитель времени между попытками
+      minTimeout: 1000, // Минимальное время ожидания между попытками (в миллисекундах)
+      maxTimeout: 60000, // Максимальное время ожидания между попытками (в миллисекундах)
+      randomize: true, // Случайное время ожидания
+    });
+
+    operation.attempt(() => {
+      const rows = [];
+      const stream = clickhouse.query(query);
+
+      stream.on('data', (row) => rows.push(row));
+      stream.on('end', () => resolve(rows));
+      stream.on('error', (err) => {
+        if (operation.retry(err)) {
+          return;
+        }
+        reject(operation.mainError());
+      });
+    });
   });
 }
-
 const market = process.env.MARKET.toLowerCase();
 
 async function main() {
@@ -37,7 +52,6 @@ async function main() {
       WHERE database = 'db_candles_${market}'
     `;
       const tables = await executeQuery(tablesQuery);
-    //   console.log(tables);
 
     const result = {};
 
@@ -77,7 +91,6 @@ async function main() {
 
 
 function findMissingIntervals(data) {
-    // console.log(data[0]);
     const missingIntervals = [];
     
    for (let i = 1; i < data.length; i++) {
@@ -93,7 +106,6 @@ function findMissingIntervals(data) {
        });
      }
     }
-    // console.log(missingIntervals);
     return missingIntervals;
 }
 
