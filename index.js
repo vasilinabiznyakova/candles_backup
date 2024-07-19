@@ -20,11 +20,11 @@ const clickhouse = new ClickHouse({
 function executeQuery(query) {
   return new Promise((resolve, reject) => {
     const operation = retry.operation({
-      retries: 5, // Количество попыток
-      factor: 2, // Множитель времени между попытками
-      minTimeout: 1000, // Минимальное время ожидания между попытками (в миллисекундах)
-      maxTimeout: 60000, // Максимальное время ожидания между попытками (в миллисекундах)
-      randomize: true, // Случайное время ожидания
+      retries: 5,
+      factor: 2, 
+      minTimeout: 1000,
+      maxTimeout: 60000, 
+      randomize: true,
     });
 
     operation.attempt(() => {
