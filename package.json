@@ -10,6 +10,7 @@
   "description": "",
   "dependencies": {
     "@apla/clickhouse": "^1.6.4",
+    "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "retry": "^0.13.1"
   }
