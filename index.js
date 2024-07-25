@@ -24,9 +24,9 @@ async function initCandlesBackup() {
         fs.mkdirSync(missingIntervalsDir);
         console.log(`Directory created: ${missingIntervalsDir}`);
       }
-    // await getMissingIntervalsFiles();
+    await getMissingIntervalsFiles();
     await readFilesFromDirectory(missingIntervalsDir);
-    // await removeDuplicates()
+    await removeDuplicates()
   
   }
 
