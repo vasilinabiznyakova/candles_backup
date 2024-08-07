@@ -1,34 +1,34 @@
   const ClickHouse = require('@apla/clickhouse');
   const axios = require('axios');
-  const dotenv = require('dotenv');
-  const fs = require('fs');
-  const path = require('path');
-  const retry = require('retry');
+const dotenv = require('dotenv');
+const fs = require('fs');
+const path = require('path');
+const retry = require('retry');
 
-  dotenv.config();
+dotenv.config();
 
-  const clickhouse = new ClickHouse({
-    host: process.env.CH_HOST,
-    port: process.env.CH_PORT,
-    user: process.env.CH_USER,
-    password: process.env.CH_PASSWORD,
-    timeout: 60000,
-    max_open_connections: 20,
-  });
+const clickhouse = new ClickHouse({
+  host: process.env.CH_HOST,
+  port: process.env.CH_PORT,
+  user: process.env.CH_USER,
+  password: process.env.CH_PASSWORD,
+  timeout: 60000,
+  max_open_connections: 20,
+});
 
-  const missingIntervalsDir = path.join(__dirname, 'missing_intervals');
-  const market = process.env.MARKET.toLowerCase();
+const missingIntervalsDir = path.join(__dirname, 'missing_intervals');
+const market = process.env.MARKET.toLowerCase();
 
 async function initCandlesBackup() {
-      if (!fs.existsSync(missingIntervalsDir)) {
-        fs.mkdirSync(missingIntervalsDir);
-        console.log(`Directory created: ${missingIntervalsDir}`);
-      }
-    await getMissingIntervalsFiles();
-    await readFilesFromDirectory(missingIntervalsDir);
-    await removeDuplicates()
-  
+  if (!fs.existsSync(missingIntervalsDir)) {
+    fs.mkdirSync(missingIntervalsDir);
+    console.log(`Directory created: ${missingIntervalsDir}`);
   }
+  await getMissingIntervalsFiles();
+  await readFilesFromDirectory(missingIntervalsDir);
+  await removeDuplicates()
+
+}
 
   function executeQuery(query) {
     return new Promise((resolve, reject) => {
@@ -348,4 +348,142 @@ async function initCandlesBackup() {
   }
 
 
+function convertIntervalsToLocalTime() {
+  console.log(`Reading files from directory: ${missingIntervalsDir}`);
+
+  const files = fs.readdirSync(missingIntervalsDir);
+  console.log(`Found ${files.length} files.`);
+
+  for (const file of files) {
+    const filePath = path.join(missingIntervalsDir, file);
+    const bigMissingPeriods = [];
+    const smallMissingPeriods = [];
+
+    const data = fs.readFileSync(filePath, 'utf8');
+    const jsonData = JSON.parse(data);
+    const key = Object.keys(jsonData)[0];
+    const intervalsArray = jsonData[key]; 
+
+    intervalsArray.forEach(({ start, end }) => {
+      const differenceInHrs = (end - start) / (1000 * 60 * 60);
+      if (differenceInHrs > 24) {
+        const convertedStart = convertToLocalTime(start);
+        const convertedEnd = convertToLocalTime(end);
+
+        const periodInfo = {
+          start: convertedStart,
+          end: convertedEnd,
+        };
+
+        bigMissingPeriods.push(periodInfo);
+      } else {
+        const periodInfo = {
+          start,
+          end,
+        };
+        smallMissingPeriods.push(periodInfo);
+      }
+    });
+    const bigMissingDir = path.join(__dirname, 'big_missing_period');
+    const smallMissingDir = path.join(__dirname, 'small_missing_period');
+
+    if (!fs.existsSync(bigMissingDir)) {
+      fs.mkdirSync(bigMissingDir);
+    }
+    if (!fs.existsSync(smallMissingDir)) {
+      fs.mkdirSync(smallMissingDir);
+    }
+
+    const filePathBigMisingPeriods = path.join(bigMissingDir, file);
+    const filePathSmallMisingPeriods = path.join(smallMissingDir, file);
+
+    fs.writeFileSync(
+      filePathBigMisingPeriods,
+      JSON.stringify(bigMissingPeriods, null, 2)
+    );
+    fs.writeFileSync(
+      filePathSmallMisingPeriods,
+      JSON.stringify(smallMissingPeriods, null, 2)
+    );
+  }
+}
+
+function getDelistedPairs() {
+  const bigMissingDir = path.join(__dirname, 'big_missing_period');
+  const files = fs.readdirSync(bigMissingDir);
+  const delistedPairs = [];
+
+  for (const file of files) {
+    const filePath = path.join(bigMissingDir, file);
+      const data = fs.readFileSync(filePath, 'utf8');
+      const jsonData = JSON.parse(data);
+
+    // console.log(intervalsArray);
+    
+    if (jsonData.length === 0) {
+      const pairName = file
+        .replace('missing_intervals_tbl_', '')
+        .replace('.json', '');
+
+      delistedPairs.push(pairName);
+
+    }
+
+  }
+
+  console.log(delistedPairs);
+  
+}
+
+function processCsvFileForManualUpload() {
+  const bigMissingDir = path.join(__dirname, 'big_missing_period');
+  const outputCsv = path.join(__dirname, 'missing_intervals.csv');
+  const files = fs.readdirSync(bigMissingDir);
+  const csvLines = [];
+
+  for (const file of files) {
+    if (file.startsWith('missing_intervals_tbl_') && file.endsWith('.json')) {
+      const asset = file
+        .replace('missing_intervals_tbl_', '')
+        .replace('.json', '');
+      const filePath = path.join(bigMissingDir, file);
+
+      const data = fs.readFileSync(filePath, 'utf8');
+      const jsonData = JSON.parse(data);
+
+      jsonData.forEach(({ start, end }) => {
+        const ts_start = convertToUnixTimestamp(start);
+        const ts_end = convertToUnixTimestamp(end);
+        const csvLine = `${asset},${ts_start},${ts_end},${start},${end}`;
+        csvLines.push(csvLine);
+      });
+    }
+  }
+
+  const csvHeader = 'asset,ts_start,ts_end,start,end';
+  const csvContent = [csvHeader, ...csvLines].join('\n');
+  fs.writeFileSync(outputCsv, csvContent);
+  console.log(`CSV file has been created: ${outputCsv}`);
+}
+
+function convertToLocalTime(timestamp) {
+  return new Date(timestamp).toLocaleString(); // Uses system's local time
+}
+
+
+function convertToUnixTimestamp(dateString) {
+  const [datePart, timePart] = dateString.split(', ');
+
+  const [day, month, year] = datePart.split('.');
+
+  const isoDateString = `${year}-${month}-${day}T${timePart}`;
+
+  const date = new Date(isoDateString);
+  return Math.floor(date.getTime());
+}
+
+processCsvFileForManualUpload()
+// getDelistedPairs();
+// getMissingIntervalsFiles()
+// convertIntervalsToLocalTime();
   initCandlesBackup(); 
