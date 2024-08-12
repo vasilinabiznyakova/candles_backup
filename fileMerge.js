@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const directoryPath = './csv';
+const directoryPath = './csv-files';
 
 const files = fs.readdirSync(directoryPath);
 
@@ -18,7 +18,7 @@ files.forEach(file => {
 });
 
 Object.keys(fileGroups).forEach(prefix => {
-    const outputFilePath = path.join(directoryPath, `../result/${prefix}.csv`);
+    const outputFilePath = path.join(directoryPath, `../csv/${prefix}.csv`);
     const outputStream = fs.createWriteStream(outputFilePath);
 
     let headerAdded = false;
