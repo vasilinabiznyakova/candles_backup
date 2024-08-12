@@ -12,6 +12,7 @@
     "@apla/clickhouse": "^1.6.4",
     "axios": "^1.7.2",
     "csv-parser": "^3.0.0",
+    "csv-stringify": "^6.5.1",
     "dotenv": "^16.4.5",
     "retry": "^0.13.1"
   }

@@ -4,6 +4,8 @@ const dotenv = require('dotenv');
 const fs = require('fs');
 const path = require('path');
 const retry = require('retry');
+const csvParser = require('csv-parser');
+const stringify = require('csv-stringify');
 
 dotenv.config();
 
@@ -484,10 +486,10 @@ function convertToUnixTimestamp(dateString) {
   return Math.floor(date.getTime());
 }
 
-function uploadSingleCsvFile(filePath, asset) {
+async function uploadSingleCsvFile(filePath, asset) {
   return new Promise((resolve, reject) => {
     const readableStream = fs.createReadStream(filePath);
-    const query = `INSERT INTO db_candles_${market}.tbl_${asset} FORMAT CSV`;
+    const query = `INSERT INTO db_candles_${market}.tbl_${asset} (ts_start, ts_end, open, high, low, close, volume_base, volume_quote) FORMAT CSV`;
 
     const writableStream = clickhouse.query(query, (err, result) => {
       if (err) {
@@ -518,10 +520,10 @@ async function uploadCsvFilesToDB() {
   console.log(`Reading files from directory: ${csvDir}`);
 
   const files = fs.readdirSync(csvDir);
-  console.log(files);
 
   for (const file of files) {
     const filePath = path.join(csvDir, file);
+    await processAndReorderCsv(filePath);
     const asset = file.replace('.csv', '');
 
     try {
@@ -533,6 +535,39 @@ async function uploadCsvFilesToDB() {
   }
 
   console.log('All files have been processed.');
+}
+
+async function processAndReorderCsv(filePath) {
+
+  return new Promise((resolve, reject) => {
+    const results = [];
+    fs.createReadStream(filePath)
+      .pipe(csvParser([false]))
+      .on('data', (row) => {
+        const reorderedRow = [
+          row[Object.keys(row)[0]], // original 1st column
+          row[Object.keys(row)[6]], // original 7th column
+          row[Object.keys(row)[1]], // original 2nd column
+          row[Object.keys(row)[2]], // original 3rd column
+          row[Object.keys(row)[3]], // original 4th column
+          row[Object.keys(row)[4]], // original 5th column
+          row[Object.keys(row)[5]], // original 6th column
+          row[Object.keys(row)[7]], // original 8th column
+        ];
+        
+        results.push(reorderedRow);
+      })
+      .on('end', () => {
+        stringify.stringify(results, { header: false }, (err, output) => {
+          if (err) reject(err);
+          fs.writeFileSync(filePath, output);
+          resolve();
+        });
+      })
+      .on('error', (err) => {
+        reject(err);
+      });
+  });
 }
 
 // processCsvFileForManualUpload()
