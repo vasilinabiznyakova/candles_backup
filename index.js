@@ -350,6 +350,10 @@ async function removeDuplicates() {
       const query = `OPTIMIZE TABLE db_candles_${market}.${table} FINAL DEDUPLICATE BY ts_start`;
       await executeQuery(query);
       console.log(`Table ${table} was deduplicated by ts_start`);
+
+       const removeEmptyRowsQuery = `ALTER TABLE db_candles_${market}.${table} DELETE WHERE ts_start = 0`;
+       await executeQuery(removeEmptyRowsQuery);
+       console.log(`Empty rows removed from table ${table}`);
     }
   } catch (error) {
     console.log('ERROR', 'binance_futures.index.main', error.message);
