@@ -219,7 +219,13 @@ async function fetchCandleData(
   endTime,
   retries = 3
 ) {
-  const url = `https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=1500`;
+  const baseUrl =
+    market === 'binance_futures'
+      ? 'https://fapi.binance.com/fapi/v1/klines'
+      : 'https://api.binance.com/api/v3/klines';
+
+  const url = `${baseUrl}?symbol=${symbol}&interval=${interval}&startTime=${startTime}&endTime=${endTime}&limit=1500`;
+
   console.log(`Fetching data from URL: ${url}`);
 
   for (let attempt = 1; attempt <= retries; attempt++) {
@@ -351,9 +357,9 @@ async function removeDuplicates() {
       await executeQuery(query);
       console.log(`Table ${table} was deduplicated by ts_start`);
 
-       const removeEmptyRowsQuery = `ALTER TABLE db_candles_${market}.${table} DELETE WHERE ts_start = 0`;
-       await executeQuery(removeEmptyRowsQuery);
-       console.log(`Empty rows removed from table ${table}`);
+      const removeEmptyRowsQuery = `ALTER TABLE db_candles_${market}.${table} DELETE WHERE ts_start = 0`;
+      await executeQuery(removeEmptyRowsQuery);
+      console.log(`Empty rows removed from table ${table}`);
     }
   } catch (error) {
     console.log('ERROR', 'binance_futures.index.main', error.message);
@@ -542,7 +548,6 @@ async function uploadCsvFilesToDB() {
 }
 
 async function processAndReorderCsv(filePath) {
-
   return new Promise((resolve, reject) => {
     const results = [];
     fs.createReadStream(filePath)
@@ -558,7 +563,7 @@ async function processAndReorderCsv(filePath) {
           row[Object.keys(row)[5]], // original 6th column
           row[Object.keys(row)[7]], // original 8th column
         ];
-        
+
         results.push(reorderedRow);
       })
       .on('end', () => {
@@ -574,9 +579,56 @@ async function processAndReorderCsv(filePath) {
   });
 }
 
+async function removePeriodsFromDB() {
+  const smallMissingDir = path.join(__dirname, 'small_missing_period');
+  console.log(`Reading files from directory: ${smallMissingDir}`);
+  const files = fs.readdirSync(smallMissingDir);
+  for (const file of files) {
+    if (file.startsWith('missing_intervals_tbl_') && file.endsWith('.json')) {
+      const asset = file
+        .replace('missing_intervals_tbl_', '')
+        .replace('.json', '');
+      const filePath = path.join(smallMissingDir, file);
+
+      try {
+        const data = fs.readFileSync(filePath, 'utf8');
+        const jsonData = JSON.parse(data);
+
+        for (const period of jsonData) {
+          const { start, end } = period;
+          console.log(
+            `Removing records for ${asset} between ${start} and ${end}`
+          );
+
+          const deleteQuery = `
+            ALTER TABLE db_candles_${market}.tbl_${asset}
+            DELETE WHERE ts_start >= ${start} AND ts_start <= ${end}
+          `;
+          console.log(deleteQuery);
+
+          await executeQuery(deleteQuery);
+          console.log(
+            `Records deleted for ${asset} between ${start} and ${end}`
+          );
+        }
+
+        // Optionally, delete the file after processing
+        // fs.unlinkSync(filePath);
+        // console.log(`Deleted file: ${filePath}`);
+      } catch (err) {
+        console.error('Error reading or processing file:', filePath, err);
+      }
+    }
+  }
+
+  console.log('All periods have been processed.');
+}
+
 // processCsvFileForManualUpload()
 // getDelistedPairs();
-// getMissingIntervalsFiles()
+// getMissingIntervalsFiles();
 // convertIntervalsToLocalTime();
-// initCandlesBackup();
-uploadCsvFilesToDB();
+initCandlesBackup();
+// uploadCsvFilesToDB();
+//  removeDuplicates();
+// removePeriodsFromDB()
