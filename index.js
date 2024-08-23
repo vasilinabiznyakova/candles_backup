@@ -6,6 +6,7 @@ const path = require('path');
 const retry = require('retry');
 const csvParser = require('csv-parser');
 const stringify = require('csv-stringify');
+const { log } = require('console');
 
 dotenv.config();
 
@@ -22,9 +23,13 @@ const missingIntervalsDir = path.join(__dirname, 'missing_intervals');
 const market = process.env.MARKET.toLowerCase();
 
 async function initCandlesBackup() {
+  console.log('initCandlesBackup started working');
+
   if (!fs.existsSync(missingIntervalsDir)) {
     fs.mkdirSync(missingIntervalsDir);
     console.log(`Directory created: ${missingIntervalsDir}`);
+  } else {
+    console.log(`Directory exists: ${missingIntervalsDir}`);
   }
   await getMissingIntervalsFiles();
   await readFilesFromDirectory(missingIntervalsDir);
@@ -96,6 +101,8 @@ async function getMissingIntervalsFiles() {
             `Missing intervals for ${tableName} have been saved to ${filePath}`
           );
         }
+      } else {
+        console.log(`No missing intervals for ${tableName}`);
       }
     }
   } catch (err) {
@@ -170,6 +177,13 @@ async function readFilesFromDirectory(directory) {
               batchItem.end
             );
 
+            if (fetchedCandles.length === 0) {
+              console.log(
+                `No candles returned for ${asset} in the interval ${batchItem.start} to ${batchItem.end}`
+              );
+              continue;
+            }
+
             if (currentSymbol === asset) {
               batch.push(...fetchedCandles);
             } else {
@@ -231,6 +245,9 @@ async function fetchCandleData(
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
       const response = await axios.get(url);
+      if (response.data.length === 0) {
+        console.log('no data fetched')
+      }
       return response.data;
     } catch (error) {
       console.log(`Attempt ${attempt} failed: ${error.message}`);
