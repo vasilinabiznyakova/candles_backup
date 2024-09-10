@@ -6,7 +6,6 @@ const path = require('path');
 const retry = require('retry');
 const csvParser = require('csv-parser');
 const stringify = require('csv-stringify');
-const { log } = require('console');
 
 dotenv.config();
 
@@ -24,6 +23,8 @@ const market = process.env.MARKET.toLowerCase();
 
 async function initCandlesBackup() {
   console.log('initCandlesBackup started working');
+  // await uploadCsvFilesToDB();
+  // console.log('Script finished');
 
   if (!fs.existsSync(missingIntervalsDir)) {
     fs.mkdirSync(missingIntervalsDir);
@@ -64,18 +65,41 @@ function executeQuery(query) {
 
 async function getMissingIntervalsFiles() {
   try {
-    const tablesQuery = `
+    let tables;
+    if (market === 'binance_futures') {
+      const tablesQuery = `
         SELECT name
         FROM system.tables
         WHERE database = 'db_candles_${market}'
       `;
-    const tables = await executeQuery(tablesQuery);
+      tables = await executeQuery(tablesQuery);
+    } else {
+      const assetsFilePath = path.join(__dirname, 'assets.json');
+      // Wrapping fs.readFile in a Promise for async/await usage
+      const fileContent = await new Promise((resolve, reject) => {
+        fs.readFile(assetsFilePath, 'utf8', (err, data) => {
+          if (err) {
+            return reject(err);
+          }
+          resolve(data);
+        });
+      });
+      tables = JSON.parse(fileContent);
+    }
+
+    console.log(tables);
+
     if (!fs.existsSync(missingIntervalsDir)) {
       fs.mkdirSync(missingIntervalsDir);
     }
 
     for (const table of tables) {
-      const tableName = table[0];
+      let tableName;
+      if (market === 'binance_futures') {
+        tableName = table[0];
+      } else {
+        tableName = `tbl_${table}`;
+      }
 
       const query = `
           SELECT ts_start
@@ -246,7 +270,7 @@ async function fetchCandleData(
     try {
       const response = await axios.get(url);
       if (response.data.length === 0) {
-        console.log('no data fetched')
+        console.log('no data fetched');
       }
       return response.data;
     } catch (error) {
@@ -556,12 +580,64 @@ async function uploadCsvFilesToDB() {
     try {
       await uploadSingleCsvFile(filePath, asset);
       console.log(`Successfully uploaded file: ${file}`);
+      fs.unlinkSync(filePath);
+      console.log(`Successfully deleted file: ${file}`);
     } catch (err) {
       console.error(`Failed to upload file ${file}:`, err);
     }
   }
 
   console.log('All files have been processed.');
+}
+
+async function addTablesToDB() {
+  const tablesName = getTablesName();
+  for (const name of tablesName) {
+    const query = `CREATE TABLE db_candles_${market}.tbl_${name} (
+      ts_start      UInt64, 
+      ts_end        UInt64, 
+      \`open\`        Float64, 
+      high          Float64, 
+      low           Float64, 
+      \`close\`       Float64, 
+      volume_base   Float64, 
+      volume_quote  Float64, 
+      ts_insert     UInt64
+    ) ENGINE = MergeTree() ORDER BY ts_start`;
+
+    try {
+      await executeQuery(query);
+      console.log(`Table ${name} created successfully`);
+    } catch (error) {
+      console.error(`Failed to create table ${name}`, error);
+    }
+  }
+}
+
+// (async () => {
+//   try {
+//     await addTablesToDB();
+//     console.log('Tables created successfully.');
+//   } catch (error) {
+//     console.error('Error creating tables:', error);
+//   }
+// })();
+
+function getTablesName() {
+  const csvDir = path.join(__dirname, 'csv');
+  console.log(`Reading files from directory: ${csvDir}`);
+
+  const files = fs.readdirSync(csvDir);
+  const assets = [];
+
+  for (const file of files) {
+    const asset = file.replace('.csv', '');
+    console.log(asset);
+
+    assets.push(asset);
+  }
+
+  return assets;
 }
 
 async function processAndReorderCsv(filePath) {
